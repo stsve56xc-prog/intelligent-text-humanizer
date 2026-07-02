@@ -271,3 +271,5 @@ test_results/
 *.swp
 *.swo
 *~
+# GloVe full file (too large for GitHub)
+backend/word_data/glove/glove.6B.100d.txt
