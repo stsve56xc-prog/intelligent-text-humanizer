@@ -125,27 +125,27 @@ class Config:
     
     # ========== PROPERTIES ==========
     
-    @property
+
     def is_rewriteai_enabled(self) -> bool:
         """Check if RewriteAI API is configured"""
         return bool(self.REWRITE_API_KEY)
     
-    @property
+
     def is_gemini_enabled(self) -> bool:
         """Check if Gemini API is configured"""
         return bool(self.GEMINI_API_KEY)
     
-    @property
+
     def is_groq_enabled(self) -> bool:
         """Check if Groq API is configured"""
         return bool(self.GROQ_API_KEY)
     
-    @property
+
     def is_openai_enabled(self) -> bool:
         """Check if OpenAI API is configured"""
         return bool(self.OPENAI_API_KEY)
     
-    @property
+
     def available_methods(self) -> list:
         """Get list of available humanization methods"""
         methods = ["local"]
@@ -159,7 +159,7 @@ class Config:
             methods.append("openai")
         return methods
     
-    @property
+
     def api_status(self) -> Dict[str, bool]:
         """Get status of all APIs"""
         return {
