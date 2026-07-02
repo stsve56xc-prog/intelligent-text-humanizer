@@ -19,6 +19,7 @@ from backend.models import (
     ErrorResponse,
 )
 from backend.services.humanize import get_humanize_service
+from backend.services.intelligent_humanizer import get_intelligent_humanizer
 from backend.services.humanizer import get_humanizer
 
 logger = logging.getLogger(__name__)
