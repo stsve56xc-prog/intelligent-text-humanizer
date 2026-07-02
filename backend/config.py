@@ -79,6 +79,8 @@ class Config:
     
     # ========== LOGGING ==========
     
+    LOG_FORMAT: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s" 
+    
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
     LOG_FILE: Optional[str] = os.getenv("LOG_FILE", "logs/app.log")
     

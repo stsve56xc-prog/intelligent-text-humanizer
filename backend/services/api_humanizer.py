@@ -6,7 +6,7 @@ Handles all third-party API calls for humanization
 import requests
 import logging
 import time
-from typing import Optional
+from typing import Optional, Dict, Any, List
 from datetime import datetime
 
 from backend.config import config

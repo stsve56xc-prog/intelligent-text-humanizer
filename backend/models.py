@@ -747,17 +747,26 @@ class StatsResponse(BaseModel):
             "example": {
                 "total_requests": 150,
                 "successful_requests": 145,
-                "failed_requests"
+                "failed_requests": 5
+            }
+        }
+
+
+class HumanizeRequest(BaseModel):
+    """
+    Input validation model for processing text transformations.
+    """
+    texts: List[str] = Field(..., description="List of texts to process")
+    tone: str = Field("balanced", description="Target writing tone profile")
+    style: str = Field("natural", description="Humanization adjustment intensity")
+
     @field_validator('texts')
     @classmethod
     def validate_texts(cls, v: List[str]) -> List[str]:
-        """Validate all texts"""
         if not v:
             raise ValueError("At least one text is required")
-        
         if len(v) > 50:
             raise ValueError("Maximum 50 texts allowed")
-        
         for i, text in enumerate(v):
             if not text or not text.strip():
                 raise ValueError(f"Text at index {i} is empty")
