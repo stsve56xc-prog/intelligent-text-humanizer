@@ -147,6 +147,15 @@ class Config:
     
 
     def available_methods(self) -> list:
+
+    def get_api_status(self) -> dict:
+        """Get status of all APIs"""
+        return {
+            "rewriteai": self.is_rewriteai_enabled,
+            "gemini": self.is_gemini_enabled,
+            "groq": self.is_groq_enabled,
+            "openai": self.is_openai_enabled
+        }
         """Get list of available humanization methods"""
         methods = ["local"]
         if self.is_rewriteai_enabled:
