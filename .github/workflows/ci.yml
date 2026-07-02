@@ -1,1 +1,263 @@
-hhh
+# ====================================================================
+# AI HUMANIZER - CI/CD PIPELINE
+# ====================================================================
+# GitHub Actions workflow for continuous integration and deployment
+# Runs on every push and pull request to main branch
+# ====================================================================
+
+name: CI/CD Pipeline
+
+# ====================================================================
+# TRIGGERS
+# ====================================================================
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '**.gitignore'
+  
+  pull_request:
+    branches:
+      - main
+      - develop
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+  
+  workflow_dispatch:  # Manual trigger
+
+# ====================================================================
+# ENVIRONMENT VARIABLES
+# ====================================================================
+
+env:
+  PYTHON_VERSION: '3.10'
+  POETRY_VERSION: '1.7.1'
+
+# ====================================================================
+# JOBS
+# ====================================================================
+
+jobs:
+
+  # ====================================================================
+  # JOB 1: LINTING
+  # ====================================================================
+  
+  lint:
+    name: 🔍 Lint & Code Quality
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+      
+      - name: 🐍 Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      
+      - name: 📦 Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install black flake8 mypy isort
+      
+      - name: 🔧 Run isort (import sorting)
+        run: |
+          isort --check-only --diff backend/ tests/
+        continue-on-error: true
+      
+      - name: 🔧 Run black (code formatting)
+        run: |
+          black --check --diff backend/ tests/
+        continue-on-error: true
+      
+      - name: 🔧 Run flake8 (style guide)
+        run: |
+          flake8 backend/ tests/ --count --max-complexity=10 --max-line-length=127 --statistics
+        continue-on-error: true
+      
+      - name: 🔧 Run mypy (type checking)
+        run: |
+          mypy backend/ --ignore-missing-imports
+        continue-on-error: true
+
+  # ====================================================================
+  # JOB 2: TESTING
+  # ====================================================================
+  
+  test:
+    name: 🧪 Run Tests
+    runs-on: ubuntu-latest
+    needs: lint
+    strategy:
+      matrix:
+        python-version: ['3.9', '3.10', '3.11']
+    
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+      
+      - name: 🐍 Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      
+      - name: 📦 Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-cov pytest-asyncio httpx
+      
+      - name: 🧠 Download NLP models
+        run: |
+          python -m spacy download en_core_web_sm
+          python -c "import nltk; nltk.download('wordnet'); nltk.download('omw-1.4'); nltk.download('punkt')"
+      
+      - name: 🧪 Run tests with coverage
+        run: |
+          pytest tests/ -v --cov=backend --cov-report=xml --cov-report=html
+      
+      - name: 📊 Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./coverage.xml
+          flags: unittests
+          name: codecov-umbrella
+          fail_ci_if_error: false
+      
+      - name: 📊 Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report-python-${{ matrix.python-version }}
+          path: htmlcov/
+
+  # ====================================================================
+  # JOB 3: SECURITY SCAN
+  # ====================================================================
+  
+  security:
+    name: 🔒 Security Scan
+    runs-on: ubuntu-latest
+    needs: test
+    
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+      
+      - name: 🐍 Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      
+      - name: 📦 Install security tools
+        run: |
+          pip install bandit safety
+      
+      - name: 🔒 Run bandit (security linter)
+        run: |
+          bandit -r backend/ -f json -o bandit-report.json
+        continue-on-error: true
+      
+      - name: 🔒 Run safety (vulnerability check)
+        run: |
+          safety check -r requirements.txt
+        continue-on-error: true
+      
+      - name: 📊 Upload security report
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-reports
+          path: bandit-report.json
+
+  # ====================================================================
+  # JOB 4: DOCKER BUILD
+  # ====================================================================
+  
+  docker:
+    name: 🐳 Docker Build
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+      
+      - name: 🐳 Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      - name: 🔑 Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_TOKEN }}
+      
+      - name: 🐳 Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: |
+            ${{ secrets.DOCKER_USERNAME }}/ai-humanizer:latest
+            ${{ secrets.DOCKER_USERNAME }}/ai-humanizer:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      
+      - name: 🐳 Scan Docker image for vulnerabilities
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ secrets.DOCKER_USERNAME }}/ai-humanizer:latest
+          format: 'table'
+          exit-code: '0'
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
+
+  # ====================================================================
+  # JOB 5: DEPLOYMENT (Production)
+  # ====================================================================
+  
+  deploy:
+    name: 🚀 Deploy
+    runs-on: ubuntu-latest
+    needs: [docker, security]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    environment: production
+    
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+      
+      - name: 🚀 Deploy to server
+        run: |
+          echo "🚀 Deploying to production server..."
+          # Add your deployment commands here
+          # Example: SSH into server and pull Docker image
+          # ssh user@server "docker pull ${{ secrets.DOCKER_USERNAME }}/ai-humanizer:latest && docker-compose up -d"
+        env:
+          DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
+      
+      - name: ✅ Deployment success
+        run: |
+          echo "✅ Deployment completed successfully!"
+          echo "🌐 API is live at: https://your-api-domain.com"
+
+# ====================================================================
+# NOTIFICATIONS
+# ====================================================================
+
+# Optional: Add notifications for Slack or email
+# Uncomment if you have Slack webhook configured
+
+# notifications:
+#   slack:
+#     on_success: always
+#     on_failure: always
+#     webhook_url: ${{ secrets.SLACK_WEBHOOK }}
