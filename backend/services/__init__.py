@@ -80,7 +80,7 @@ def get_service_info() -> dict:
                 "available": True,
             },
         },
-        "api_status": config.api_status,
+        "api_status": config.get_api_status(),
     }
 
 
