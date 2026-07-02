@@ -1,508 +1,406 @@
-from fastapi import FastAPI, HTTPException
+"""
+AI Humanizer API - Main Entry Point
+FastAPI application with all routes and middleware
+"""
+
+from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
-from typing import Optional, List
-import os
-import re
-import random
-import requests
+from fastapi.exceptions import RequestValidationError
 import logging
-from dotenv import load_dotenv
+import time
+import os
 from datetime import datetime
+from typing import Dict, Any
 
-# Load environment variables
-load_dotenv()
+# ============================================================
+# CONFIGURATION
+# ============================================================
 
-# ========== LOGGING SETUP ==========
+from backend.config import config
+from backend.models import HealthResponse, ErrorResponse
+
+# ============================================================
+# LOGGING SETUP
+# ============================================================
+
+# Create logs directory if it doesn't exist
+os.makedirs("logs", exist_ok=True)
+
+# Configure logging
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    level=getattr(logging, config.LOG_LEVEL),
+    format=config.LOG_FORMAT,
+    handlers=[
+        logging.FileHandler(config.LOG_FILE),
+        logging.StreamHandler()
+    ]
 )
+
 logger = logging.getLogger(__name__)
 
-# ========== FASTAPI APP ==========
+# ============================================================
+# CREATE FASTAPI APP
+# ============================================================
+
 app = FastAPI(
     title="AI Humanizer API",
-    description="Humanize AI-generated text with advanced NLP",
+    description="Humanize AI-generated text with advanced NLP and intelligent rewriting",
     version="2.0.0",
     docs_url="/docs",
-    redoc_url="/redoc"
+    redoc_url="/redoc",
+    openapi_url="/openapi.json",
 )
 
-# ========== CORS SETUP ==========
+# ============================================================
+# CORS MIDDLEWARE
+# ============================================================
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, replace with specific origins
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=config.CORS_ALLOW_ORIGINS,
+    allow_credentials=config.CORS_ALLOW_CREDENTIALS,
+    allow_methods=config.CORS_ALLOW_METHODS,
+    allow_headers=config.CORS_ALLOW_HEADERS,
 )
 
-# ========== MODELS ==========
-class HumanizeRequest(BaseModel):
-    text: str
-    tone: Optional[str] = "academic"
-    style: Optional[str] = "balanced"  # conservative, balanced, creative
-    preserve_technical: Optional[bool] = True
+# ============================================================
+# REQUEST LOGGING MIDDLEWARE
+# ============================================================
 
-class HumanizeResponse(BaseModel):
-    original_text: str
-    humanized_text: str
-    tone: str
-    word_count: int
-    processing_time: float
-    method_used: str  # "api" or "local"
-
-class HealthResponse(BaseModel):
-    status: str
-    version: str
-    timestamp: str
-    methods_available: List[str]
-
-# ========== CONFIGURATION ==========
-REWRITE_API_KEY = os.getenv("REWRITE_API_KEY", "")
-MAX_TEXT_LENGTH = 5000
-DEFAULT_TONE = "academic"
-
-logger.info(f"RewriteAI API Key present: {bool(REWRITE_API_KEY)}")
-
-# ========== VOCABULARY DATABASE ==========
-
-# Robotic phrases to replace
-ROBOTIC_PHRASES = [
-    ("was carried out", "was performed"),
-    ("was carried out", "was conducted"),
-    ("was placed", "was positioned"),
-    ("was placed", "was mounted"),
-    ("were recorded", "were documented"),
-    ("were recorded", "were noted"),
-    ("was identified by", "was recognized by"),
-    ("was identified by", "was characterized by"),
-    ("was utilized", "was used"),
-    ("was utilized", "was employed"),
-    ("in order to", "to"),
-    ("prior to", "before"),
-    ("subsequently", "then"),
-    ("subsequently", "afterward"),
-    ("thereafter", "after that"),
-    ("exhibited", "showed"),
-    ("exhibited", "displayed"),
-    ("a significant amount of", "substantial"),
-    ("a large number of", "many"),
-    ("it is important to note that", ""),
-    ("it should be mentioned that", ""),
-]
-
-# Rich synonym database
-SYNONYMS = {
-    "use": ["utilize", "employ", "apply", "leverage", "deploy"],
-    "show": ["demonstrate", "reveal", "indicate", "suggest", "illustrate"],
-    "get": ["obtain", "acquire", "secure", "gain", "attain"],
-    "make": ["create", "produce", "generate", "construct", "establish"],
-    "change": ["modify", "alter", "adjust", "transform", "adapt"],
-    "identify": ["detect", "recognize", "distinguish", "characterize", "discern"],
-    "observe": ["notice", "examine", "inspect", "study", "scrutinize"],
-    "record": ["document", "note", "log", "capture", "chronicle"],
-    "analyze": ["examine", "study", "investigate", "assess", "evaluate"],
-    "place": ["position", "mount", "deposit", "set", "arrange"],
-    "add": ["introduce", "supplement", "apply", "administer", "incorporate"],
-    "avoid": ["prevent", "eliminate", "circumvent", "bypass", "avert"],
-    "prepare": ["ready", "organize", "arrange", "set up", "establish"],
-    "confirm": ["verify", "validate", "corroborate", "substantiate", "affirm"],
-    "demonstrate": ["show", "prove", "exhibit", "display", "manifest"],
-    "indicate": ["suggest", "point to", "imply", "signify", "denote"],
-    "reveal": ["disclose", "uncover", "expose", "divulge", "unveil"],
-    "discover": ["find", "unearth", "uncover", "detect", "identify"],
-    "examine": ["inspect", "study", "scrutinize", "analyze", "review"],
-    "investigate": ["probe", "explore", "examine", "scrutinize", "research"],
-    "study": ["examine", "analyze", "investigate", "review", "scrutinize"],
-    "review": ["examine", "study", "analyze", "assess", "evaluate"],
-    "assess": ["evaluate", "appraise", "estimate", "judge", "measure"],
-    "evaluate": ["assess", "appraise", "estimate", "judge", "determine"],
-    "measure": ["calculate", "determine", "evaluate", "quantify", "assess"],
-    "calculate": ["compute", "determine", "estimate", "quantify", "figure"],
-    "determine": ["establish", "ascertain", "identify", "define", "pinpoint"],
-    "establish": ["create", "found", "set up", "institute", "form"],
-    "develop": ["create", "formulate", "devise", "design", "generate"],
-    "create": ["develop", "produce", "generate", "formulate", "devise"],
-    "design": ["plan", "devise", "create", "formulate", "conceive"],
-    "implement": ["apply", "employ", "execute", "carry out", "realize"],
-    "apply": ["use", "employ", "utilize", "implement", "administer"],
-    "employ": ["use", "utilize", "apply", "engage", "deploy"],
-    "leverage": ["use", "employ", "utilize", "capitalize on", "exploit"],
-    "generate": ["produce", "create", "develop", "make", "yield"],
-    "produce": ["generate", "create", "develop", "make", "yield"],
-    "construct": ["build", "create", "develop", "form", "establish"],
-    "form": ["create", "develop", "establish", "generate", "produce"],
-}
-
-# Advanced transitions
-TRANSITIONS = {
-    "addition": ["Moreover, ", "Additionally, ", "Furthermore, ", "In addition, ", "Not only that, "],
-    "contrast": ["However, ", "In contrast, ", "On the other hand, ", "Conversely, ", "Nevertheless, "],
-    "example": ["For instance, ", "For example, ", "Specifically, ", "In particular, ", "Notably, "],
-    "result": ["Consequently, ", "As a result, ", "Therefore, ", "Thus, ", "Hence, "],
-    "emphasis": ["Indeed, ", "In fact, ", "Actually, ", "Importantly, ", "Significantly, "],
-    "conclusion": ["In summary, ", "Overall, ", "In conclusion, ", "To summarize, ", "Ultimately, "],
-    "similarity": ["Similarly, ", "Likewise, ", "In the same way, ", "Correspondingly, "],
-}
-
-# Tone-specific adjustments
-TONE_SETTINGS = {
-    "academic": {
-        "contractions": False,
-        "formality": "high",
-        "intro_words": ["Indeed, ", "Notably, ", "Significantly, ", "Importantly, "],
-        "vocabulary": "formal"
-    },
-    "natural": {
-        "contractions": True,
-        "formality": "medium",
-        "intro_words": ["So, ", "Well, ", "You see, ", "Now, "],
-        "vocabulary": "balanced"
-    },
-    "blog": {
-        "contractions": True,
-        "formality": "low",
-        "intro_words": ["Look, ", "Honestly, ", "Real talk, ", "Here's the thing, "],
-        "vocabulary": "casual",
-        "add_emoji": True
-    },
-    "professional": {
-        "contractions": False,
-        "formality": "high",
-        "intro_words": ["Certainly, ", "Undoubtedly, ", "Clearly, ", "Evidently, "],
-        "vocabulary": "formal"
-    },
-    "conversational": {
-        "contractions": True,
-        "formality": "very_low",
-        "intro_words": ["So basically, ", "Alright, so ", "Okay, ", "You know, "],
-        "vocabulary": "casual",
-        "slang": True
-    }
-}
-
-# Domain-specific terms (academic/biotech)
-DOMAIN_TERMS = {
-    "biotech": [
-        "mycelium", "hyphae", "conidiophore", "phialide", "septate",
-        "globose", "penicillus", "spore", "morphology", "consortium",
-        "degradation", "polymer", "fungal", "isolates", "macroscopic"
-    ],
-    "academic": [
-        "identification", "characterization", "analysis", "evaluation",
-        "assessment", "investigation", "demonstration", "validation"
-    ]
-}
-
-# ========== CORE HUMANIZATION ENGINE ==========
-
-def humanize_locally(text: str, tone: str = "academic", style: str = "balanced", preserve_technical: bool = True) -> str:
-    """Advanced local humanization without API calls"""
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    """Log all incoming requests"""
     
-    logger.info(f"Humanizing text: {len(text)} chars, tone: {tone}, style: {style}")
+    start_time = time.time()
     
-    original_text = text
+    # Get request details
+    method = request.method
+    url = str(request.url)
+    client_host = request.client.host if request.client else "unknown"
     
-    # ===== STEP 1: Pre-processing =====
-    # Remove extra spaces
-    text = " ".join(text.split())
-    
-    # ===== STEP 2: Replace robotic phrases =====
-    for old, new in ROBOTIC_PHRASES:
-        if old in text.lower():
-            # Randomly choose replacement if multiple options exist
-            replacements = [p[1] for p in ROBOTIC_PHRASES if p[0] == old]
-            if replacements:
-                new = random.choice(replacements)
-            text = text.replace(old, new)
-    
-    # ===== STEP 3: Intelligent synonym replacement =====
-    words = text.split()
-    modified_words = []
-    
-    for i, word in enumerate(words):
-        # Clean word for lookup
-        clean = re.sub(r'[^\w\s]', '', word).lower()
-        
-        # Check if word should be preserved (technical term)
-        should_preserve = False
-        if preserve_technical:
-            for domain, terms in DOMAIN_TERMS.items():
-                if clean in terms:
-                    should_preserve = True
-                    break
-        
-        # Replace with synonym if appropriate
-        if clean in SYNONYMS and len(clean) > 3 and not should_preserve:
-            # Vary replacement rate based on style
-            if style == "conservative":
-                replacement_rate = 0.3
-            elif style == "creative":
-                replacement_rate = 0.7
-            else:  # balanced
-                replacement_rate = 0.5
-            
-            if random.random() < replacement_rate:
-                new_word = random.choice(SYNONYMS[clean])
-                # Preserve capitalization and punctuation
-                if word[0].isupper():
-                    new_word = new_word.capitalize()
-                if word[-1] in '.!?,;:':
-                    new_word += word[-1]
-                modified_words.append(new_word)
-                continue
-        
-        modified_words.append(word)
-    
-    text = " ".join(modified_words)
-    
-    # ===== STEP 4: Sentence restructuring =====
-    sentences = text.split(". ")
-    
-    # Merge short sentences
-    merged = []
-    i = 0
-    while i < len(sentences):
-        if i < len(sentences) - 1 and len(sentences[i].split()) < 8:
-            merged.append(sentences[i] + ". " + sentences[i+1])
-            i += 2
-        else:
-            merged.append(sentences[i])
-            i += 1
-    sentences = merged
-    
-    # Add transitions
-    if len(sentences) > 2:
-        # Add transition at random position
-        idx = random.randint(1, len(sentences) - 1)
-        category = random.choice(list(TRANSITIONS.keys()))
-        transition = random.choice(TRANSITIONS[category])
-        sentences[idx] = transition + sentences[idx][0].lower() + sentences[idx][1:]
-    
-    text = ". ".join(sentences)
-    
-    # ===== STEP 5: Voice variation (active/passive) =====
-    # Simple pattern-based voice change
-    if "by" in text and random.random() < 0.2:
-        # Passive → Active (simplified)
-        parts = text.split(" by ")
-        if len(parts) == 2:
-            text = f"{parts[1]} {parts[0]}".strip()
-    
-    # ===== STEP 6: Tone application =====
-    tone_settings = TONE_SETTINGS.get(tone, TONE_SETTINGS["natural"])
-    
-    # Add intro words
-    if random.random() < 0.3 and tone_settings["intro_words"]:
-        intro = random.choice(tone_settings["intro_words"])
-        text = intro + text[0].lower() + text[1:]
-    
-    # Apply contractions
-    if tone_settings.get("contractions", False):
-        contraction_map = {
-            " are not ": " aren't ",
-            " is not ": " isn't ",
-            " cannot ": " can't ",
-            " will not ": " won't ",
-            " I am ": " I'm ",
-            " you are ": " you're ",
-            " it is ": " it's ",
-            " do not ": " don't ",
-            " does not ": " doesn't ",
-            " did not ": " didn't ",
-            " would not ": " wouldn't ",
-            " should not ": " shouldn't ",
-            " could not ": " couldn't ",
-        }
-        for old, new in contraction_map.items():
-            if random.random() < 0.5:  # 50% chance per contraction
-                text = text.replace(old, new)
-    
-    # Add emojis for blog style
-    if tone_settings.get("add_emoji", False) and random.random() < 0.3:
-        emojis = ["🔬", "🧪", "💡", "🤔", "✨", "📝", "🎯", "🚀"]
-        text = random.choice(emojis) + " " + text
-    
-    # ===== STEP 7: Quality assurance =====
-    # Ensure minimum length preservation
-    if len(text) < len(original_text) * 0.5:
-        logger.warning("Text too short after humanization, using original")
-        return original_text
-    
-    logger.info(f"Humanization complete: {len(text)} chars")
-    return text
-
-# ========== API CALLS ==========
-
-def call_rewriteai_api(text: str, tone: str) -> Optional[str]:
-    """Call RewriteAI API for humanization"""
-    if not REWRITE_API_KEY:
-        return None
+    # Log request
+    logger.info(f"📥 {method} {url} from {client_host}")
     
     try:
-        url = "https://rewriteai.com/api/v1/humanize"
-        headers = {
-            "Authorization": f"Bearer {REWRITE_API_KEY}",
-            "Content-Type": "application/json"
-        }
-        payload = {
-            "text": text,
-            "tone": tone
-        }
+        response = await call_next(request)
         
-        response = requests.post(url, json=payload, headers=headers, timeout=30)
+        # Calculate processing time
+        process_time = time.time() - start_time
         
-        if response.status_code == 200:
-            data = response.json()
-            if "results" in data and len(data["results"]) > 0:
-                return data["results"][0]["text"]
+        # Log response
+        logger.info(
+            f"📤 {method} {url} → {response.status_code} "
+            f"({process_time:.3f}s)"
+        )
         
-        logger.warning(f"RewriteAI API returned: {response.status_code}")
-        return None
+        # Add custom header
+        response.headers["X-Process-Time"] = str(process_time)
+        
+        return response
         
     except Exception as e:
-        logger.error(f"RewriteAI API error: {e}")
-        return None
+        logger.error(f"❌ {method} {url} → Error: {str(e)}")
+        raise
 
-# ========== API ENDPOINTS ==========
+# ============================================================
+# EXCEPTION HANDLERS
+# ============================================================
 
-@app.get("/", response_model=dict)
-async def root():
-    """Root endpoint with API info"""
-    return {
-        "name": "AI Humanizer API",
-        "version": "2.0.0",
-        "description": "Humanize AI-generated text",
-        "endpoints": {
-            "/docs": "Swagger documentation",
-            "/health": "Health check",
-            "/api/humanize": "Main humanization endpoint (POST)"
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """Handle validation errors"""
+    
+    errors = []
+    for error in exc.errors():
+        errors.append({
+            "field": ".".join(str(loc) for loc in error["loc"]),
+            "message": error["msg"],
+            "type": error["type"]
+        })
+    
+    logger.warning(f"Validation error: {errors}")
+    
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content={
+            "detail": "Validation error",
+            "errors": errors,
+            "timestamp": datetime.now().isoformat()
         }
-    }
+    )
 
-@app.get("/health", response_model=HealthResponse)
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    """Handle HTTP exceptions"""
+    
+    logger.warning(f"HTTP {exc.status_code}: {exc.detail}")
+    
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "detail": exc.detail,
+            "status_code": exc.status_code,
+            "timestamp": datetime.now().isoformat()
+        }
+    )
+
+@app.exception_handler(Exception)
+async def general_exception_handler(request: Request, exc: Exception):
+    """Handle all other exceptions"""
+    
+    logger.error(f"Unhandled exception: {str(exc)}", exc_info=True)
+    
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={
+            "detail": "Internal server error. Please try again later.",
+            "status_code": 500,
+            "timestamp": datetime.now().isoformat()
+        }
+    )
+
+# ============================================================
+# HEALTH CHECK
+# ============================================================
+
+@app.get(
+    "/health",
+    response_model=HealthResponse,
+    tags=["System"],
+    summary="Health Check",
+    description="Check if the API is running and all dependencies are available"
+)
 async def health_check():
-    """Health check endpoint"""
-    methods = []
-    if REWRITE_API_KEY:
-        methods.append("rewriteai")
-    methods.append("local")
+    """
+    Health check endpoint
+    
+    Returns:
+        HealthResponse with service status
+    """
+    
+    from backend.services import get_humanizer
+    from backend.config import config
+    
+    humanizer = get_humanizer()
     
     return HealthResponse(
         status="healthy",
         version="2.0.0",
-        timestamp=datetime.now().isoformat(),
-        methods_available=methods
+        timestamp=datetime.now(),
+        methods_available=config.available_methods,
+        uptime_seconds=humanizer.get_uptime(),
+        dependencies=config.api_status
     )
 
-@app.post("/api/humanize", response_model=HumanizeResponse)
-async def humanize_text(request: HumanizeRequest):
+# ============================================================
+# ROOT ENDPOINT
+# ============================================================
+
+@app.get(
+    "/",
+    tags=["System"],
+    summary="API Information",
+    description="Get basic information about the API"
+)
+async def root():
     """
-    Humanize AI-generated text
+    Root endpoint with API information
     
-    - **text**: The text to humanize (min 10 chars)
-    - **tone**: academic, natural, blog, professional, conversational
-    - **style**: conservative, balanced, creative
-    - **preserve_technical**: Keep technical terms unchanged
+    Returns:
+        API information with available endpoints
     """
-    import time
-    start_time = time.time()
     
-    # Validate input
-    if len(request.text.strip()) < 10:
-        raise HTTPException(
-            status_code=400,
-            detail="Text must be at least 10 characters long"
-        )
-    
-    if len(request.text) > MAX_TEXT_LENGTH:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Text exceeds maximum length of {MAX_TEXT_LENGTH} characters"
-        )
-    
-    # Validate tone
-    valid_tones = ["academic", "natural", "blog", "professional", "conversational"]
-    if request.tone not in valid_tones:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Tone must be one of: {', '.join(valid_tones)}"
-        )
-    
-    # Validate style
-    valid_styles = ["conservative", "balanced", "creative"]
-    if request.style not in valid_styles:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Style must be one of: {', '.join(valid_styles)}"
-        )
-    
-    logger.info(f"Received humanization request: tone={request.tone}, style={request.style}")
-    
-    # ===== STEP 1: Try RewriteAI API =====
-    humanized = None
-    method_used = "local"
-    
-    if REWRITE_API_KEY:
-        humanized = call_rewriteai_api(request.text, request.tone)
-        if humanized:
-            method_used = "api"
-            logger.info("Used RewriteAI API")
-    
-    # ===== STEP 2: Fallback to local =====
-    if not humanized:
-        humanized = humanize_locally(
-            request.text,
-            request.tone,
-            request.style,
-            request.preserve_technical
-        )
-        logger.info("Used local humanization")
-    
-    processing_time = time.time() - start_time
-    
-    return HumanizeResponse(
-        original_text=request.text,
-        humanized_text=humanized,
-        tone=request.tone,
-        word_count=len(humanized.split()),
-        processing_time=round(processing_time, 3),
-        method_used=method_used
-    )
+    return {
+        "name": "AI Humanizer API",
+        "version": "2.0.0",
+        "description": "Humanize AI-generated text with advanced NLP",
+        "endpoints": {
+            "/": "This information",
+            "/docs": "Swagger UI documentation",
+            "/redoc": "ReDoc documentation",
+            "/health": "Health check",
+            "/api/humanize": "Humanize a single text (POST)",
+            "/api/humanize/batch": "Humanize multiple texts (POST)",
+            "/api/analyze": "Analyze text metrics (POST)",
+            "/api/compare": "Compare tones (POST)",
+            "/api/stats": "Service statistics (GET)",
+        },
+        "methods_available": config.available_methods,
+        "defaults": {
+            "tone": config.DEFAULT_TONE,
+            "style": config.DEFAULT_STYLE,
+            "preserve_technical": config.DEFAULT_PRESERVE_TECHNICAL
+        },
+        "limits": {
+            "max_text_length": config.MAX_TEXT_LENGTH,
+            "min_text_length": config.MIN_TEXT_LENGTH,
+            "max_batch_size": config.MAX_BATCH_SIZE
+        },
+        "timestamp": datetime.now().isoformat()
+    }
 
-# ========== ERROR HANDLERS ==========
+# ============================================================
+# STATISTICS ENDPOINT
+# ============================================================
 
-@app.exception_handler(HTTPException)
-async def http_exception_handler(request, exc):
-    return JSONResponse(
-        status_code=exc.status_code,
-        content={"detail": exc.detail}
-    )
+@app.get(
+    "/api/stats",
+    tags=["System"],
+    summary="Service Statistics",
+    description="Get detailed statistics about the service"
+)
+async def get_stats():
+    """
+    Get service statistics
+    
+    Returns:
+        Dictionary with service statistics
+    """
+    
+    from backend.services import get_humanizer
+    
+    humanizer = get_humanizer()
+    stats = humanizer.get_stats()
+    
+    return {
+        "service": "AI Humanizer API",
+        "version": "2.0.0",
+        "timestamp": datetime.now().isoformat(),
+        "stats": stats,
+        "api_status": config.api_status,
+        "settings": {
+            "cache_enabled": config.CACHE_ENABLED,
+            "cache_ttl": config.CACHE_TTL,
+            "rate_limit": f"{config.RATE_LIMIT_REQUESTS} per {config.RATE_LIMIT_PERIOD}s",
+            "max_text_length": config.MAX_TEXT_LENGTH,
+        }
+    }
 
-@app.exception_handler(Exception)
-async def general_exception_handler(request, exc):
-    logger.error(f"Unhandled exception: {exc}")
-    return JSONResponse(
-        status_code=500,
-        content={"detail": "Internal server error. Please try again."}
-    )
+# ============================================================
+# CLEAR CACHE ENDPOINT
+# ============================================================
 
-# ========== MAIN ENTRY POINT ==========
+@app.post(
+    "/api/cache/clear",
+    tags=["System"],
+    summary="Clear Cache",
+    description="Clear the service cache"
+)
+async def clear_cache():
+    """
+    Clear the service cache
+    
+    Returns:
+        Success message
+    """
+    
+    from backend.services import get_humanize_service
+    
+    service = get_humanize_service()
+    service.clear_cache()
+    
+    return {
+        "status": "success",
+        "message": "Cache cleared successfully",
+        "timestamp": datetime.now().isoformat()
+    }
+
+# ============================================================
+# RESET STATS ENDPOINT
+# ============================================================
+
+@app.post(
+    "/api/stats/reset",
+    tags=["System"],
+    summary="Reset Statistics",
+    description="Reset all service statistics"
+)
+async def reset_stats():
+    """
+    Reset service statistics
+    
+    Returns:
+        Success message
+    """
+    
+    from backend.services import get_humanizer
+    
+    humanizer = get_humanizer()
+    humanizer.reset_stats()
+    
+    return {
+        "status": "success",
+        "message": "Statistics reset successfully",
+        "timestamp": datetime.now().isoformat()
+    }
+
+# ============================================================
+# IMPORT AND INCLUDE ROUTES
+# ============================================================
+
+from backend.routes import humanize_router
+
+app.include_router(humanize_router)
+
+# ============================================================
+# STARTUP EVENT
+# ============================================================
+
+@app.on_event("startup")
+async def startup_event():
+    """Run on application startup"""
+    
+    logger.info("=" * 60)
+    logger.info("🚀 AI Humanizer API Starting...")
+    logger.info("=" * 60)
+    logger.info(f"📚 Version: 2.0.0")
+    logger.info(f"🌐 Host: {config.HOST}:{config.PORT}")
+    logger.info(f"📖 Docs: http://{config.HOST}:{config.PORT}/docs")
+    logger.info(f"🔧 Debug Mode: {config.DEBUG}")
+    logger.info(f"📡 Available Methods: {config.available_methods}")
+    logger.info(f"💾 Cache: {'Enabled' if config.CACHE_ENABLED else 'Disabled'}")
+    logger.info("=" * 60)
+    
+    # Log API status
+    for api, enabled in config.api_status.items():
+        status = "✅" if enabled else "❌"
+        logger.info(f"   {status} {api.upper()}: {'Configured' if enabled else 'Not configured'}")
+    
+    logger.info("=" * 60)
+    logger.info("✅ API is ready to serve requests!")
+
+# ============================================================
+# SHUTDOWN EVENT
+# ============================================================
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Run on application shutdown"""
+    
+    logger.info("🛑 AI Humanizer API shutting down...")
+    logger.info("👋 Goodbye!")
+
+# ============================================================
+# MAIN ENTRY POINT
+# ============================================================
 
 if __name__ == "__main__":
     import uvicorn
     
-    logger.info("🚀 Starting AI Humanizer API...")
-    logger.info(f"📊 RewriteAI API: {'Enabled' if REWRITE_API_KEY else 'Disabled (fallback to local)'}")
-    logger.info(f"📍 Server: http://0.0.0.0:8000")
-    logger.info(f"📖 Docs: http://0.0.0.0:8000/docs")
+    logger.info("🚀 Starting server...")
     
     uvicorn.run(
-        app,
-        host="0.0.0.0",
-        port=8000,
-        log_level="info"
+        "backend.main:app",
+        host=config.HOST,
+        port=config.PORT,
+        reload=config.RELOAD,
+        log_level=config.LOG_LEVEL.lower(),
+        access_log=True,
     )
+
+# ============================================================
+# EXPORTS
+# ============================================================
+
+__all__ = ["app"]
