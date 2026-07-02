@@ -1,0 +1,5 @@
+# Logs Directory
+# This folder stores application log files.
+# Log files are ignored by Git (see .gitignore).
+
+# .gitkeep keeps this directory in the repository.
