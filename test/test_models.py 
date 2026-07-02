@@ -1,1 +1,514 @@
-gggs
+"""
+Models Tests for AI Humanizer
+Tests all Pydantic data models
+"""
+
+import pytest
+from datetime import datetime
+from backend.models import (
+    ToneEnum,
+    StyleEnum,
+    MethodEnum,
+    HumanizeRequest,
+    HumanizeResponse,
+    BatchHumanizeRequest,
+    AnalyzeRequest,
+    CompareRequest,
+    HealthResponse,
+    ErrorResponse,
+    SynonymRequest,
+    SynonymResponse,
+    StatsResponse,
+)
+
+
+class TestEnums:
+    """Test all enum classes"""
+    
+    def test_tone_enum(self):
+        """Test ToneEnum values"""
+        assert ToneEnum.ACADEMIC == "academic"
+        assert ToneEnum.NATURAL == "natural"
+        assert ToneEnum.BLOG == "blog"
+        assert ToneEnum.PROFESSIONAL == "professional"
+        assert ToneEnum.CONVERSATIONAL == "conversational"
+        assert len(ToneEnum) == 5
+    
+    def test_style_enum(self):
+        """Test StyleEnum values"""
+        assert StyleEnum.CONSERVATIVE == "conservative"
+        assert StyleEnum.BALANCED == "balanced"
+        assert StyleEnum.CREATIVE == "creative"
+        assert len(StyleEnum) == 3
+    
+    def test_method_enum(self):
+        """Test MethodEnum values"""
+        assert MethodEnum.REWRITEAI == "rewriteai_api"
+        assert MethodEnum.GEMINI == "gemini_api"
+        assert MethodEnum.GROQ == "groq_api"
+        assert MethodEnum.LOCAL == "local"
+        assert len(MethodEnum) == 4
+
+
+class TestHumanizeRequest:
+    """Test HumanizeRequest model"""
+    
+    def test_valid_request(self):
+        """Test valid humanize request"""
+        request = HumanizeRequest(
+            text="This is a test text for humanization.",
+            tone=ToneEnum.ACADEMIC,
+            style=StyleEnum.BALANCED,
+            preserve_technical=True
+        )
+        assert request.text == "This is a test text for humanization."
+        assert request.tone == ToneEnum.ACADEMIC
+        assert request.style == StyleEnum.BALANCED
+        assert request.preserve_technical is True
+    
+    def test_request_with_defaults(self):
+        """Test request with default values"""
+        request = HumanizeRequest(
+            text="Test text."
+        )
+        assert request.text == "Test text."
+        assert request.tone == ToneEnum.ACADEMIC  # Default
+        assert request.style == StyleEnum.BALANCED  # Default
+        assert request.preserve_technical is True  # Default
+    
+    def test_request_min_text_length(self):
+        """Test request with minimum text length"""
+        request = HumanizeRequest(text="Test text.")  # 10 chars
+        assert len(request.text) >= 10
+    
+    def test_request_text_cleaning(self):
+        """Test text cleaning removes extra whitespace"""
+        request = HumanizeRequest(
+            text="  This   has   extra   spaces.  "
+        )
+        assert request.text == "This has extra spaces."
+    
+    def test_request_text_too_short(self):
+        """Test request with text too short"""
+        with pytest.raises(ValueError):
+            HumanizeRequest(text="Hi")  # 2 chars
+    
+    def test_request_empty_text(self):
+        """Test request with empty text"""
+        with pytest.raises(ValueError):
+            HumanizeRequest(text="")
+    
+    def test_request_invalid_tone(self):
+        """Test request with invalid tone"""
+        with pytest.raises(ValueError):
+            HumanizeRequest(
+                text="Test text.",
+                tone="invalid_tone"  # type: ignore
+            )
+    
+    def test_request_invalid_style(self):
+        """Test request with invalid style"""
+        with pytest.raises(ValueError):
+            HumanizeRequest(
+                text="Test text.",
+                style="invalid_style"  # type: ignore
+            )
+    
+    def test_request_max_text_length(self):
+        """Test request with maximum text length"""
+        long_text = "a" * 5000
+        request = HumanizeRequest(text=long_text)
+        assert len(request.text) == 5000
+    
+    def test_request_exceeds_max_length(self):
+        """Test request exceeds max length"""
+        with pytest.raises(ValueError):
+            HumanizeRequest(text="a" * 5001)
+    
+    def test_request_preserve_technical_default(self):
+        """Test preserve_technical default is True"""
+        request = HumanizeRequest(text="Test text.")
+        assert request.preserve_technical is True
+    
+    def test_request_json_schema(self):
+        """Test request has JSON schema"""
+        assert hasattr(HumanizeRequest, "Config")
+        config = HumanizeRequest.Config
+        assert hasattr(config, "json_schema_extra")
+
+
+class TestBatchHumanizeRequest:
+    """Test BatchHumanizeRequest model"""
+    
+    def test_valid_batch_request(self):
+        """Test valid batch request"""
+        request = BatchHumanizeRequest(
+            texts=["Text 1", "Text 2", "Text 3"],
+            tone=ToneEnum.NATURAL,
+            style=StyleEnum.CREATIVE,
+            preserve_technical=False
+        )
+        assert len(request.texts) == 3
+        assert request.tone == ToneEnum.NATURAL
+        assert request.style == StyleEnum.CREATIVE
+        assert request.preserve_technical is False
+    
+    def test_batch_request_with_defaults(self):
+        """Test batch request with defaults"""
+        request = BatchHumanizeRequest(
+            texts=["Text 1", "Text 2"]
+        )
+        assert request.tone == ToneEnum.ACADEMIC  # Default
+        assert request.style == StyleEnum.BALANCED  # Default
+        assert request.preserve_technical is True  # Default
+    
+    def test_batch_request_empty_list(self):
+        """Test batch request with empty list"""
+        with pytest.raises(ValueError):
+            BatchHumanizeRequest(texts=[])
+    
+    def test_batch_request_too_many(self):
+        """Test batch request with too many texts"""
+        with pytest.raises(ValueError):
+            BatchHumanizeRequest(texts=["Text"] * 51)  # Max 50
+    
+    def test_batch_request_empty_text(self):
+        """Test batch request with empty text"""
+        with pytest.raises(ValueError):
+            BatchHumanizeRequest(texts=["", "Text 2"])
+    
+    def test_batch_request_text_too_short(self):
+        """Test batch request with text too short"""
+        with pytest.raises(ValueError):
+            BatchHumanizeRequest(texts=["Hi", "Text 2"])
+    
+    def test_batch_request_invalid_tone(self):
+        """Test batch request with invalid tone"""
+        with pytest.raises(ValueError):
+            BatchHumanizeRequest(
+                texts=["Text 1"],
+                tone="invalid_tone"  # type: ignore
+            )
+    
+    def test_batch_request_text_cleaning(self):
+        """Test batch request text cleaning"""
+        request = BatchHumanizeRequest(
+            texts=["  Text 1  ", "  Text 2  "]
+        )
+        assert request.texts[0] == "Text 1"
+        assert request.texts[1] == "Text 2"
+
+
+class TestAnalyzeRequest:
+    """Test AnalyzeRequest model"""
+    
+    def test_valid_analyze_request(self):
+        """Test valid analyze request"""
+        request = AnalyzeRequest(
+            text="This is a test text for analysis."
+        )
+        assert request.text == "This is a test text for analysis."
+    
+    def test_analyze_request_empty_text(self):
+        """Test analyze request with empty text"""
+        with pytest.raises(ValueError):
+            AnalyzeRequest(text="")
+    
+    def test_analyze_request_too_short(self):
+        """Test analyze request with text too short"""
+        with pytest.raises(ValueError):
+            AnalyzeRequest(text="Hi")
+    
+    def test_analyze_request_text_cleaning(self):
+        """Test analyze request text cleaning"""
+        request = AnalyzeRequest(
+            text="  This   has   extra   spaces.  "
+        )
+        assert request.text == "This has extra spaces."
+
+
+class TestCompareRequest:
+    """Test CompareRequest model"""
+    
+    def test_valid_compare_request(self):
+        """Test valid compare request"""
+        request = CompareRequest(
+            text="Test text.",
+            tones=[ToneEnum.ACADEMIC, ToneEnum.NATURAL],
+            style=StyleEnum.BALANCED,
+            preserve_technical=True
+        )
+        assert request.text == "Test text."
+        assert len(request.tones) == 2
+        assert request.style == StyleEnum.BALANCED
+        assert request.preserve_technical is True
+    
+    def test_compare_request_with_defaults(self):
+        """Test compare request with defaults"""
+        request = CompareRequest(
+            text="Test text."
+        )
+        assert len(request.tones) == 3  # Default: academic, natural, conversational
+        assert request.style == StyleEnum.BALANCED  # Default
+        assert request.preserve_technical is True  # Default
+    
+    def test_compare_request_empty_text(self):
+        """Test compare request with empty text"""
+        with pytest.raises(ValueError):
+            CompareRequest(text="")
+    
+    def test_compare_request_text_cleaning(self):
+        """Test compare request text cleaning"""
+        request = CompareRequest(
+            text="  Test   text.  "
+        )
+        assert request.text == "Test text."
+
+
+class TestHumanizeResponse:
+    """Test HumanizeResponse model"""
+    
+    def test_valid_response(self):
+        """Test valid response"""
+        response = HumanizeResponse(
+            original_text="Original text",
+            humanized_text="Humanized text",
+            tone="academic",
+            style="balanced",
+            word_count=3,
+            processing_time=0.5,
+            method_used="local"
+        )
+        assert response.original_text == "Original text"
+        assert response.humanized_text == "Humanized text"
+        assert response.tone == "academic"
+        assert response.style == "balanced"
+        assert response.word_count == 3
+        assert response.processing_time == 0.5
+        assert response.method_used == "local"
+        assert isinstance(response.timestamp, datetime)
+    
+    def test_response_with_optional_fields(self):
+        """Test response with optional fields"""
+        response = HumanizeResponse(
+            original_text="Original",
+            humanized_text="Humanized",
+            tone="academic",
+            style="balanced",
+            word_count=2,
+            processing_time=0.1,
+            method_used="local",
+            changes_made=5,
+            original_word_count=10
+        )
+        assert response.changes_made == 5
+        assert response.original_word_count == 10
+    
+    def test_response_word_count_validation(self):
+        """Test response word count validation"""
+        with pytest.raises(ValueError):
+            HumanizeResponse(
+                original_text="Original",
+                humanized_text="Humanized",
+                tone="academic",
+                style="balanced",
+                word_count=0,  # Must be >= 1
+                processing_time=0.1,
+                method_used="local"
+            )
+    
+    def test_response_processing_time_validation(self):
+        """Test response processing time validation"""
+        with pytest.raises(ValueError):
+            HumanizeResponse(
+                original_text="Original",
+                humanized_text="Humanized",
+                tone="academic",
+                style="balanced",
+                word_count=1,
+                processing_time=-1,  # Must be >= 0
+                method_used="local"
+            )
+
+
+class TestHealthResponse:
+    """Test HealthResponse model"""
+    
+    def test_valid_health_response(self):
+        """Test valid health response"""
+        response = HealthResponse(
+            status="healthy",
+            version="2.0.0",
+            methods_available=["local", "rewriteai"],
+            uptime_seconds=3600.5,
+            dependencies={"rewriteai": True, "gemini": False}
+        )
+        assert response.status == "healthy"
+        assert response.version == "2.0.0"
+        assert len(response.methods_available) == 2
+        assert response.uptime_seconds == 3600.5
+        assert response.dependencies["rewriteai"] is True
+    
+    def test_health_response_with_defaults(self):
+        """Test health response with defaults"""
+        response = HealthResponse(
+            status="healthy",
+            version="2.0.0"
+        )
+        assert response.methods_available == []
+        assert response.dependencies == {}
+        assert isinstance(response.timestamp, datetime)
+    
+    def test_health_response_uptime_optional(self):
+        """Test health response uptime is optional"""
+        response = HealthResponse(
+            status="healthy",
+            version="2.0.0"
+        )
+        assert response.uptime_seconds is None
+
+
+class TestErrorResponse:
+    """Test ErrorResponse model"""
+    
+    def test_valid_error_response(self):
+        """Test valid error response"""
+        response = ErrorResponse(
+            detail="Text must be at least 10 characters long",
+            status_code=400,
+            error_type="ValidationError",
+            path="/api/humanize",
+            suggestion="Please provide a longer text"
+        )
+        assert response.detail == "Text must be at least 10 characters long"
+        assert response.status_code == 400
+        assert response.error_type == "ValidationError"
+        assert response.path == "/api/humanize"
+        assert response.suggestion == "Please provide a longer text"
+    
+    def test_error_response_with_defaults(self):
+        """Test error response with defaults"""
+        response = ErrorResponse(
+            detail="Error occurred",
+            status_code=500,
+            error_type="ServerError"
+        )
+        assert response.path is None
+        assert response.suggestion is None
+        assert isinstance(response.timestamp, datetime)
+
+
+class TestSynonymRequest:
+    """Test SynonymRequest model"""
+    
+    def test_valid_synonym_request(self):
+        """Test valid synonym request"""
+        request = SynonymRequest(
+            word="identify",
+            limit=10,
+            context="scientific"
+        )
+        assert request.word == "identify"
+        assert request.limit == 10
+        assert request.context == "scientific"
+    
+    def test_synonym_request_with_defaults(self):
+        """Test synonym request with defaults"""
+        request = SynonymRequest(
+            word="identify"
+        )
+        assert request.limit == 10  # Default
+        assert request.context is None  # Default
+    
+    def test_synonym_request_empty_word(self):
+        """Test synonym request with empty word"""
+        with pytest.raises(ValueError):
+            SynonymRequest(word="")
+    
+    def test_synonym_request_invalid_word(self):
+        """Test synonym request with invalid word (numbers)"""
+        with pytest.raises(ValueError):
+            SynonymRequest(word="123")
+    
+    def test_synonym_request_word_too_short(self):
+        """Test synonym request with word too short"""
+        with pytest.raises(ValueError):
+            SynonymRequest(word="a")
+    
+    def test_synonym_request_limit_range(self):
+        """Test synonym request limit range"""
+        with pytest.raises(ValueError):
+            SynonymRequest(word="test", limit=0)
+        
+        with pytest.raises(ValueError):
+            SynonymRequest(word="test", limit=51)
+
+
+class TestSynonymResponse:
+    """Test SynonymResponse model"""
+    
+    def test_valid_synonym_response(self):
+        """Test valid synonym response"""
+        response = SynonymResponse(
+            word="identify",
+            synonyms=["detect", "recognize", "distinguish"],
+            total_found=3
+        )
+        assert response.word == "identify"
+        assert len(response.synonyms) == 3
+        assert response.total_found == 3
+    
+    def test_synonym_response_empty_synonyms(self):
+        """Test synonym response with empty synonyms"""
+        response = SynonymResponse(
+            word="xyzabc",
+            synonyms=[],
+            total_found=0
+        )
+        assert response.total_found == 0
+
+
+class TestStatsResponse:
+    """Test StatsResponse model"""
+    
+    def test_valid_stats_response(self):
+        """Test valid stats response"""
+        response = StatsResponse(
+            total_requests=150,
+            successful_requests=145,
+            failed_requests=5,
+            average_processing_time=0.345,
+            total_words_processed=5000,
+            methods_used={"local": 100, "rewriteai_api": 50},
+            tones_used={"academic": 80, "natural": 40},
+            uptime=7200.5
+        )
+        assert response.total_requests == 150
+        assert response.successful_requests == 145
+        assert response.failed_requests == 5
+        assert response.average_processing_time == 0.345
+        assert response.total_words_processed == 5000
+        assert response.methods_used["local"] == 100
+        assert response.tones_used["academic"] == 80
+        assert response.uptime == 7200.5
+    
+    def test_stats_response_with_defaults(self):
+        """Test stats response with defaults"""
+        response = StatsResponse()
+        assert response.total_requests == 0
+        assert response.successful_requests == 0
+        assert response.failed_requests == 0
+        assert response.average_processing_time == 0.0
+        assert response.total_words_processed == 0
+        assert response.methods_used == {}
+        assert response.tones_used == {}
+        assert response.uptime == 0.0
+        assert isinstance(response.timestamp, datetime)
+
+
+# ============================================================
+# RUN TESTS
+# ============================================================
+
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])
