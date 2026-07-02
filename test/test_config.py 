@@ -1,1 +1,424 @@
-gg
+"""
+Configuration Tests for AI Humanizer
+Tests all configuration settings and environment variables
+"""
+
+import os
+import pytest
+from backend.config import config, get_config, Environment
+from backend.config import DevelopmentConfig, ProductionConfig, TestingConfig
+
+
+class TestConfig:
+    """Test configuration settings"""
+    
+    def test_config_exists(self):
+        """Test that config object exists"""
+        assert config is not None
+    
+    def test_config_has_required_attributes(self):
+        """Test config has all required attributes"""
+        required_attrs = [
+            'REWRITE_API_KEY',
+            'REWRITE_API_URL',
+            'GEMINI_API_KEY',
+            'GEMINI_API_URL',
+            'GROQ_API_KEY',
+            'GROQ_API_URL',
+            'GROQ_MODEL',
+            'OPENAI_API_KEY',
+            'OPENAI_API_URL',
+            'OPENAI_MODEL',
+            'API_TIMEOUT',
+            'API_CONNECT_TIMEOUT',
+            'MAX_RETRIES',
+            'RETRY_DELAY',
+            'RATE_LIMIT_REQUESTS',
+            'RATE_LIMIT_PERIOD',
+            'MAX_TEXT_LENGTH',
+            'MIN_TEXT_LENGTH',
+            'MAX_BATCH_SIZE',
+            'DEFAULT_TONE',
+            'DEFAULT_STYLE',
+            'DEFAULT_PRESERVE_TECHNICAL',
+            'HOST',
+            'PORT',
+            'DEBUG',
+            'RELOAD',
+            'LOG_LEVEL',
+            'LOG_FILE',
+            'LOG_FORMAT',
+            'CORS_ALLOW_ORIGINS',
+            'CORS_ALLOW_CREDENTIALS',
+            'CORS_ALLOW_METHODS',
+            'CORS_ALLOW_HEADERS',
+            'CACHE_ENABLED',
+            'CACHE_TTL',
+            'CACHE_MAX_SIZE',
+            'ENVIRONMENT',
+            'CLOUD_PROVIDER',
+            'SECRET_KEY',
+            'ALGORITHM',
+            'ACCESS_TOKEN_EXPIRE_MINUTES',
+            'FEATURE_BATCH_PROCESSING',
+            'FEATURE_TEXT_ANALYSIS',
+            'FEATURE_COMPARE_TONES',
+            'FEATURE_WORD_SUGGESTIONS',
+            'WORD_DATA_PATH',
+            'LOAD_WORD_DATA',
+            'MAX_EMBEDDING_WORDS',
+        ]
+        
+        for attr in required_attrs:
+            assert hasattr(config, attr), f"Missing attribute: {attr}"
+    
+    # ============================================================
+    # API KEY TESTS
+    # ============================================================
+    
+    def test_rewrite_api_key_loaded(self):
+        """Test RewriteAI API key is loaded (even if empty)"""
+        assert hasattr(config, 'REWRITE_API_KEY')
+        # Key can be empty string if not set
+        assert isinstance(config.REWRITE_API_KEY, str)
+    
+    def test_rewrite_api_url_has_value(self):
+        """Test RewriteAI API URL has a value"""
+        assert config.REWRITE_API_URL is not None
+        assert len(config.REWRITE_API_URL) > 0
+        assert 'rewriteai' in config.REWRITE_API_URL.lower()
+    
+    def test_gemini_api_url_has_value(self):
+        """Test Gemini API URL has a value"""
+        assert config.GEMINI_API_URL is not None
+        assert len(config.GEMINI_API_URL) > 0
+        assert 'googleapis' in config.GEMINI_API_URL.lower()
+    
+    def test_groq_api_url_has_value(self):
+        """Test Groq API URL has a value"""
+        assert config.GROQ_API_URL is not None
+        assert len(config.GROQ_API_URL) > 0
+        assert 'groq' in config.GROQ_API_URL.lower()
+    
+    def test_groq_model_has_value(self):
+        """Test Groq model has a value"""
+        assert config.GROQ_MODEL is not None
+        assert len(config.GROQ_MODEL) > 0
+    
+    # ============================================================
+    # API STATUS PROPERTY TESTS
+    # ============================================================
+    
+    def test_is_rewriteai_enabled(self):
+        """Test is_rewriteai_enabled property"""
+        assert hasattr(config, 'is_rewriteai_enabled')
+        assert isinstance(config.is_rewriteai_enabled, bool)
+    
+    def test_is_gemini_enabled(self):
+        """Test is_gemini_enabled property"""
+        assert hasattr(config, 'is_gemini_enabled')
+        assert isinstance(config.is_gemini_enabled, bool)
+    
+    def test_is_groq_enabled(self):
+        """Test is_groq_enabled property"""
+        assert hasattr(config, 'is_groq_enabled')
+        assert isinstance(config.is_groq_enabled, bool)
+    
+    def test_is_openai_enabled(self):
+        """Test is_openai_enabled property"""
+        assert hasattr(config, 'is_openai_enabled')
+        assert isinstance(config.is_openai_enabled, bool)
+    
+    def test_available_methods(self):
+        """Test available_methods property"""
+        assert hasattr(config, 'available_methods')
+        assert isinstance(config.available_methods, list)
+        assert 'local' in config.available_methods  # Local is always available
+    
+    def test_api_status(self):
+        """Test api_status property"""
+        assert hasattr(config, 'api_status')
+        assert isinstance(config.api_status, dict)
+        assert 'rewriteai' in config.api_status
+        assert 'gemini' in config.api_status
+        assert 'groq' in config.api_status
+        assert 'openai' in config.api_status
+    
+    # ============================================================
+    # DEFAULT SETTINGS TESTS
+    # ============================================================
+    
+    def test_default_tone(self):
+        """Test default tone is valid"""
+        valid_tones = ['academic', 'natural', 'blog', 'professional', 'conversational']
+        assert config.DEFAULT_TONE in valid_tones, f"Invalid DEFAULT_TONE: {config.DEFAULT_TONE}"
+    
+    def test_default_style(self):
+        """Test default style is valid"""
+        valid_styles = ['conservative', 'balanced', 'creative']
+        assert config.DEFAULT_STYLE in valid_styles, f"Invalid DEFAULT_STYLE: {config.DEFAULT_STYLE}"
+    
+    def test_default_preserve_technical(self):
+        """Test default preserve technical is boolean"""
+        assert isinstance(config.DEFAULT_PRESERVE_TECHNICAL, bool)
+    
+    # ============================================================
+    # LIMITS TESTS
+    # ============================================================
+    
+    def test_text_limits(self):
+        """Test text limits are valid"""
+        assert config.MAX_TEXT_LENGTH > config.MIN_TEXT_LENGTH
+        assert config.MAX_TEXT_LENGTH >= 1000
+        assert config.MIN_TEXT_LENGTH >= 1
+    
+    def test_batch_size(self):
+        """Test batch size is valid"""
+        assert config.MAX_BATCH_SIZE >= 1
+        assert config.MAX_BATCH_SIZE <= 100
+    
+    def test_rate_limits(self):
+        """Test rate limits are valid"""
+        assert config.RATE_LIMIT_REQUESTS >= 1
+        assert config.RATE_LIMIT_PERIOD >= 1
+    
+    def test_timeout_values(self):
+        """Test timeout values are valid"""
+        assert config.API_TIMEOUT >= 5
+        assert config.API_CONNECT_TIMEOUT >= 1
+        assert config.MAX_RETRIES >= 1
+    
+    # ============================================================
+    # SERVER SETTINGS TESTS
+    # ============================================================
+    
+    def test_server_host(self):
+        """Test server host is valid"""
+        assert config.HOST is not None
+        assert len(config.HOST) > 0
+    
+    def test_server_port(self):
+        """Test server port is valid"""
+        assert config.PORT > 0
+        assert config.PORT < 65536
+    
+    def test_debug_mode(self):
+        """Test debug mode is boolean"""
+        assert isinstance(config.DEBUG, bool)
+    
+    def test_reload_mode(self):
+        """Test reload mode is boolean"""
+        assert isinstance(config.RELOAD, bool)
+    
+    # ============================================================
+    # CORS SETTINGS TESTS
+    # ============================================================
+    
+    def test_cors_allow_origins(self):
+        """Test CORS allow origins"""
+        assert hasattr(config, 'CORS_ALLOW_ORIGINS')
+        assert isinstance(config.CORS_ALLOW_ORIGINS, list)
+    
+    def test_cors_allow_credentials(self):
+        """Test CORS allow credentials"""
+        assert isinstance(config.CORS_ALLOW_CREDENTIALS, bool)
+    
+    def test_cors_allow_methods(self):
+        """Test CORS allow methods"""
+        assert hasattr(config, 'CORS_ALLOW_METHODS')
+        assert isinstance(config.CORS_ALLOW_METHODS, list)
+    
+    def test_cors_allow_headers(self):
+        """Test CORS allow headers"""
+        assert hasattr(config, 'CORS_ALLOW_HEADERS')
+        assert isinstance(config.CORS_ALLOW_HEADERS, list)
+    
+    # ============================================================
+    # CACHE SETTINGS TESTS
+    # ============================================================
+    
+    def test_cache_enabled(self):
+        """Test cache enabled is boolean"""
+        assert isinstance(config.CACHE_ENABLED, bool)
+    
+    def test_cache_ttl(self):
+        """Test cache TTL is valid"""
+        assert config.CACHE_TTL >= 0
+    
+    def test_cache_max_size(self):
+        """Test cache max size is valid"""
+        assert config.CACHE_MAX_SIZE >= 1
+    
+    # ============================================================
+    # ENVIRONMENT TESTS
+    # ============================================================
+    
+    def test_environment_value(self):
+        """Test environment value is valid"""
+        valid_envs = ['development', 'production', 'testing']
+        # ENVIRONMENT might not be set, default is 'development'
+        assert config.ENVIRONMENT in valid_envs or config.ENVIRONMENT == ''
+    
+    # ============================================================
+    # FEATURE FLAGS TESTS
+    # ============================================================
+    
+    def test_feature_flags(self):
+        """Test feature flags are booleans"""
+        feature_flags = [
+            'FEATURE_BATCH_PROCESSING',
+            'FEATURE_TEXT_ANALYSIS',
+            'FEATURE_COMPARE_TONES',
+            'FEATURE_WORD_SUGGESTIONS',
+        ]
+        for flag in feature_flags:
+            assert hasattr(config, flag)
+            assert isinstance(getattr(config, flag), bool)
+    
+    # ============================================================
+    # VOCABULARY DATA TESTS
+    # ============================================================
+    
+    def test_word_data_path(self):
+        """Test word data path"""
+        assert hasattr(config, 'WORD_DATA_PATH')
+        assert len(config.WORD_DATA_PATH) > 0
+    
+    def test_load_word_data(self):
+        """Test load word data flag"""
+        assert isinstance(config.LOAD_WORD_DATA, bool)
+    
+    def test_max_embedding_words(self):
+        """Test max embedding words is valid"""
+        assert config.MAX_EMBEDDING_WORDS >= 1000
+    
+    # ============================================================
+    # CONFIG VALIDATION TESTS
+    # ============================================================
+    
+    def test_validate_config(self):
+        """Test config validation"""
+        assert hasattr(config, 'validate')
+        result = config.validate()
+        assert isinstance(result, bool)
+    
+    def test_display_config(self):
+        """Test config display method exists"""
+        assert hasattr(config, 'display')
+        # Just check it exists, don't call it (it prints)
+    
+    # ============================================================
+    # ENVIRONMENT CONFIG TESTS
+    # ============================================================
+    
+    def test_get_config_function(self):
+        """Test get_config function"""
+        assert callable(get_config)
+        result = get_config()
+        assert result is not None
+    
+    def test_development_config(self):
+        """Test DevelopmentConfig"""
+        assert DevelopmentConfig.DEBUG is True
+        assert DevelopmentConfig.RELOAD is True
+    
+    def test_production_config(self):
+        """Test ProductionConfig"""
+        assert ProductionConfig.DEBUG is False
+        assert ProductionConfig.RELOAD is False
+    
+    def test_testing_config(self):
+        """Test TestingConfig"""
+        assert TestingConfig.DEBUG is True
+        assert TestingConfig.RELOAD is False
+    
+    # ============================================================
+    # ENVIRONMENT CLASS TESTS
+    # ============================================================
+    
+    def test_environment_class(self):
+        """Test Environment class methods"""
+        assert hasattr(Environment, 'is_production')
+        assert hasattr(Environment, 'is_development')
+        assert hasattr(Environment, 'is_testing')
+        assert hasattr(Environment, 'get_environment')
+        assert hasattr(Environment, 'is_cloud')
+    
+    def test_environment_methods_return_bool(self):
+        """Test Environment methods return bool"""
+        assert isinstance(Environment.is_production(), bool)
+        assert isinstance(Environment.is_development(), bool)
+        assert isinstance(Environment.is_testing(), bool)
+        assert isinstance(Environment.is_cloud(), bool)
+    
+    def test_environment_get_environment_returns_string(self):
+        """Test get_environment returns string"""
+        env = Environment.get_environment()
+        assert isinstance(env, str)
+    
+    # ============================================================
+    # ENVIRONMENT VARIABLE TESTS
+    # ============================================================
+    
+    def test_env_vars_loaded(self):
+        """Test environment variables are loaded"""
+        # Check if .env file was loaded (REWRITE_API_KEY might be empty but should be string)
+        assert isinstance(config.REWRITE_API_KEY, str)
+    
+    def test_env_var_override(self):
+        """Test environment variables can be overridden"""
+        original = config.DEFAULT_TONE
+        # Change it
+        config.DEFAULT_TONE = "natural"
+        assert config.DEFAULT_TONE == "natural"
+        # Reset
+        config.DEFAULT_TONE = original
+    
+    # ============================================================
+    # EDGE CASES
+    # ============================================================
+    
+    def test_config_with_missing_env(self):
+        """Test config works with missing environment variables"""
+        # These should have default values
+        assert config.MAX_TEXT_LENGTH is not None
+        assert config.MIN_TEXT_LENGTH is not None
+        assert config.API_TIMEOUT is not None
+    
+    def test_config_type_consistency(self):
+        """Test config values have consistent types"""
+        # Strings
+        assert isinstance(config.HOST, str)
+        assert isinstance(config.LOG_LEVEL, str)
+        assert isinstance(config.LOG_FILE, str)
+        assert isinstance(config.SECRET_KEY, str)
+        assert isinstance(config.ALGORITHM, str)
+        
+        # Integers
+        assert isinstance(config.PORT, int)
+        assert isinstance(config.API_TIMEOUT, int)
+        assert isinstance(config.CACHE_TTL, int)
+        assert isinstance(config.CACHE_MAX_SIZE, int)
+        
+        # Booleans
+        assert isinstance(config.DEBUG, bool)
+        assert isinstance(config.RELOAD, bool)
+        assert isinstance(config.CACHE_ENABLED, bool)
+        assert isinstance(config.CORS_ALLOW_CREDENTIALS, bool)
+    
+    def test_config_paths_exist(self):
+        """Test config paths exist or can be created"""
+        # These are paths that should exist or be creatable
+        assert hasattr(config, 'BASE_DIR')
+        assert hasattr(config, 'LOGS_DIR')
+        assert hasattr(config, 'WORD_DATA_DIR')
+        assert hasattr(config, 'MODELS_DIR')
+        assert hasattr(config, 'VOCABULARY_DIR')
+
+
+# ============================================================
+# RUN TESTS
+# ============================================================
+
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])
