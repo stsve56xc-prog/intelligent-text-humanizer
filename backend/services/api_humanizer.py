@@ -1,3 +1,4 @@
+from typing import Dict, Any, Optional, List
 """
 External API Humanizers
 Handles all third-party API calls for humanization

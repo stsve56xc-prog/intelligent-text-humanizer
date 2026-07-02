@@ -148,7 +148,7 @@ class Config:
 
     def available_methods(self) -> list:
 
-    def get_api_status(self) -> dict:
+        def get_api_status(self) -> dict:
         """Get status of all APIs"""
         return {
             "rewriteai": self.is_rewriteai_enabled,
