@@ -190,7 +190,7 @@ async def health_check():
         timestamp=datetime.now(),
         methods_available=config.available_methods,
         uptime_seconds=humanizer.get_uptime(),
-        dependencies=config.api_status
+        dependencies=config.get_api_status()
     )
 
 # ============================================================
@@ -268,7 +268,7 @@ async def get_stats():
         "version": "2.0.0",
         "timestamp": datetime.now().isoformat(),
         "stats": stats,
-        "api_status": config.api_status,
+        "api_status": config.get_api_status(),
         "settings": {
             "cache_enabled": config.CACHE_ENABLED,
             "cache_ttl": config.CACHE_TTL,
@@ -363,7 +363,7 @@ async def startup_event():
     logger.info("=" * 60)
     
     # Log API status
-    for api, enabled in config.api_status.items():
+    for api, enabled in config.get_api_status().items():
         status = "✅" if enabled else "❌"
         logger.info(f"   {status} {api.upper()}: {'Configured' if enabled else 'Not configured'}")
     
