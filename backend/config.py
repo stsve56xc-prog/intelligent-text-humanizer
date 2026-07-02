@@ -156,19 +156,6 @@ class Config:
             "groq": self.is_groq_enabled,
             "openai": self.is_openai_enabled
         }
-        """Get list of available humanization methods"""
-        methods = ["local"]
-        if self.is_rewriteai_enabled:
-            methods.append("rewriteai")
-        if self.is_gemini_enabled:
-            methods.append("gemini")
-        if self.is_groq_enabled:
-            methods.append("groq")
-        if self.is_openai_enabled:
-            methods.append("openai")
-        return methods
-    
-
     def api_status(self) -> Dict[str, bool]:
         """Get status of all APIs"""
         return {
